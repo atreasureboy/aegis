@@ -1,0 +1,51 @@
+﻿python : ::ffff:127.0.0.1 - - [25/Apr/2026 12:17:21] "HEAD /stage2.exe HTTP/1.1" 200 -
+所在位置 行:1 字符: 57
++ ... sktop\attack11\aegis\builds'; python -m http.server 8888 2>&1 | Out-F ...
++                                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (::ffff:127.0.0....HTTP/1.1" 200 -:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+::ffff:127.0.0.1 - - [25/Apr/2026 12:17:46] "GET /stage2.exe HTTP/1.1" 200 -
+::ffff:169.254.59.75 - - [25/Apr/2026 12:29:18] "GET /stage2.exe HTTP/1.1" 200 -
+::ffff:127.0.0.1 - - [25/Apr/2026 12:33:10] "GET /stage2.exe HTTP/1.1" 200 -
+::ffff:127.0.0.1 - - [25/Apr/2026 12:43:00] "GET /stage2.exe HTTP/1.1" 200 -
+::ffff:127.0.0.1 - - [25/Apr/2026 12:44:08] "GET / HTTP/1.1" 200 -
+::ffff:127.0.0.1 - - [25/Apr/2026 12:44:08] "GET /stage2.exe HTTP/1.1" 200 -
+----------------------------------------
+Exception occurred during processing of request from ('::ffff:127.0.0.1', 1031, 0, 0)
+Traceback (most recent call last):
+  File "C:\Users\ZHHQZS\AppData\Local\Programs\Python\Python313\Lib\socketserver.py", line 697, in process_request_thre
+ad
+    self.finish_request(request, client_address)
+    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ZHHQZS\AppData\Local\Programs\Python\Python313\Lib\http\server.py", line 1320, in finish_request
+    self.RequestHandlerClass(request, client_address, self,
+    ~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+                             directory=args.directory)
+                             ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ZHHQZS\AppData\Local\Programs\Python\Python313\Lib\http\server.py", line 672, in __init__
+    super().__init__(*args, **kwargs)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "C:\Users\ZHHQZS\AppData\Local\Programs\Python\Python313\Lib\socketserver.py", line 766, in __init__
+    self.handle()
+    ~~~~~~~~~~~^^
+  File "C:\Users\ZHHQZS\AppData\Local\Programs\Python\Python313\Lib\http\server.py", line 436, in handle
+    self.handle_one_request()
+    ~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\ZHHQZS\AppData\Local\Programs\Python\Python313\Lib\http\server.py", line 424, in handle_one_request
+    method()
+    ~~~~~~^^
+  File "C:\Users\ZHHQZS\AppData\Local\Programs\Python\Python313\Lib\http\server.py", line 679, in do_GET
+    self.copyfile(f, self.wfile)
+    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^
+  File "C:\Users\ZHHQZS\AppData\Local\Programs\Python\Python313\Lib\http\server.py", line 881, in copyfile
+    shutil.copyfileobj(source, outputfile)
+    ~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ZHHQZS\AppData\Local\Programs\Python\Python313\Lib\shutil.py", line 204, in copyfileobj
+    fdst_write(buf)
+    ~~~~~~~~~~^^^^^
+  File "C:\Users\ZHHQZS\AppData\Local\Programs\Python\Python313\Lib\socketserver.py", line 845, in write
+    self._sock.sendall(b)
+    ~~~~~~~~~~~~~~~~~~^^^
+ConnectionResetError: [WinError 10054] 杩滅▼涓绘満寮鸿揩鍏抽棴浜嗕竴涓幇鏈夌殑杩炴帴銆?
+----------------------------------------

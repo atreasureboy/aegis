@@ -1,0 +1,32 @@
+# Build outputs
+builds/
+build/
+*.exe
+*.sh
+
+# Keys and secrets
+keys/
+*.pem
+*.key
+.env
+
+# Database
+*.db
+*.sqlite
+
+# Agent test artifacts
+agent_test.exe
+agent_output.log
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+nul
+NUL
+
+# Garble cache
+.cache/

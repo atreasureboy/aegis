@@ -1,0 +1,54 @@
+# Aegis C2 Framework - Academic Interview Tool
+# Security-first design with circuit breaker and audit logging
+
+listen_addr: ":8443"
+heartbeat_interval_sec: 10
+max_tasks_per_minute: 10
+max_concurrent_tasks: 3
+task_timeout_sec: 60
+academic_mode: true
+
+# Allowed commands in academic mode
+allowed_commands:
+  - "whoami"
+  - "hostname"
+  - "uname"
+  - "ps"
+  - "ls"
+  - "cat"
+  - "netstat"
+  - "ifconfig"
+  - "ipconfig"
+  - "pwd"
+  - "date"
+  - "echo"
+  - "info"
+  - "process"
+
+# Blocked commands (always denied)
+blocked_commands:
+  - "rm"
+  - "shutdown"
+  - "reboot"
+  - "format"
+  - "del"
+  - "net user"
+  - "mimikatz"
+  - "powershell -enc"
+
+# IP whitelist
+whitelist:
+  enabled: true
+  allowed_ips:
+    - "127.0.0.0/8"
+    - "10.0.0.0/8"
+    - "172.16.0.0/12"
+    - "192.168.0.0/16"
+
+# Circuit breaker
+circuit_breaker:
+  max_heartbeat_failures: 5
+  max_tasks_per_minute: 10
+  max_concurrent_tasks: 3
+  task_timeout_sec: 60
+  anomaly_detection: true

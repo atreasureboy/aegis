@@ -1,0 +1,15 @@
+﻿C:\Users\ZHHQZS\Desktop\attack11\aegis\server.exe : 2026/04/25 12:14:45 [SERVER] initializing Aegis C2 server...
+所在位置 行:1 字符: 50
++ ... k11\aegis'; C:\Users\ZHHQZS\Desktop\attack11\aegis\server.exe --insec ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (2026/04/25 12:1...is C2 server...:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+2026/04/25 12:14:45 [SERVER] academic_mode: enabled
+2026/04/25 12:14:45 [SERVER] IP whitelist: enabled
+2026/04/25 12:14:45 [SERVER] circuit breaker: enabled
+2026/04/25 12:14:45 [SERVER] PKI initialized (CA: pki\ca.crt)
+2026/04/25 12:14:45 [SERVER] gRPC operator service starting on :8444
+2026/04/25 12:14:45 [SERVER] RSA public key fingerprint: 142d500766796cec
+2026/04/25 12:14:45 [SERVER] listening on :8443
+2026/04/25 12:14:45 [GRPC] operator service listening on :8444
