@@ -12,11 +12,24 @@ keys/
 
 # Database
 *.db
+*.db-shm
+*.db-wal
 *.sqlite
 
 # Agent test artifacts
 agent_test.exe
 agent_output.log
+
+# Logs
+*.log
+audit.log
+
+# Certificates and PKI
+certs/
+pki/
+*.crt
+*.csr
+*.srl
 
 # IDE
 .vscode/
@@ -30,3 +43,9 @@ NUL
 
 # Garble cache
 .cache/
+
+# Test/temp files
+encrypt_and_register.go
+encrypt_stage2.go
+test_agent.exe~
+agent-linux
