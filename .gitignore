@@ -44,8 +44,22 @@ NUL
 # Garble cache
 .cache/
 
+# Backup files
+*.bak
+*.tmp
+*~
+
+# PowerShell scripts (unless intentional)
+*.ps1
+
 # Test/temp files
 encrypt_and_register.go
 encrypt_stage2.go
 test_agent.exe~
+
+# Compiled binaries (already committed, but prevent future accidents)
 agent-linux
+agent-windows.exe
+agent.exe
+aegis-server
+aegis-client
