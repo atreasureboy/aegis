@@ -15,6 +15,7 @@ package db
 import (
 	"database/sql"
 	"fmt"
+	"log"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -33,10 +34,17 @@ func Open(path string) (*DB, error) {
 	}
 
 	// WAL mode for better concurrent read performance
-	conn.Exec("PRAGMA journal_mode=WAL")
-	conn.Exec("PRAGMA synchronous=NORMAL")
-	conn.Exec("PRAGMA cache_size=-2000") // 2MB cache
-	conn.Exec("PRAGMA busy_timeout=5000") // 5s busy timeout
+	pragmas := []string{
+		"PRAGMA journal_mode=WAL",
+		"PRAGMA synchronous=NORMAL",
+		"PRAGMA cache_size=-2000",
+		"PRAGMA busy_timeout=5000",
+	}
+	for _, p := range pragmas {
+		if _, err := conn.Exec(p); err != nil {
+			log.Printf("[WARN] failed to execute %q: %v (continuing)", p, err)
+		}
+	}
 
 	// SQLite 优化配置 (WAL mode allows some concurrent reads)
 	conn.SetMaxOpenConns(4)  // Allow some concurrent reads (WAL mode supports this)

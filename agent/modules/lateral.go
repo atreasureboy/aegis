@@ -52,7 +52,7 @@ func PsExecModule(args string) (string, string, int) {
 		return "", "usage: psexec -target <ip> -user <user> -pass <pass> -cmd <command>", 1
 	}
 
-	output, err := lateral.PsExec(target, user, pass, cmd)
+	output, err := lateral.RemoteCmd(target, user, pass, cmd)
 	if err != nil {
 		return "", fmt.Sprintf("psexec failed: %v", err), 1
 	}

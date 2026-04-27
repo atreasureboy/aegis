@@ -184,8 +184,8 @@ func (m *Manager) Start(id string, handler http.Handler) error {
 		}()
 
 	case TransportDNS, TransportNamedPipe, TransportWireGuard, TransportMTLS:
-		// 这些传输方式需要额外的初始化（DNS 服务器、Named Pipe、WireGuard、mTLS）
-		// 当前仅标记状态，实际监听需要对应传输层支持
+		// 这些传输方式需要额外的初始化，当前不支持直接通过 listener manager 启动
+		return fmt.Errorf("transport %s requires external infrastructure (not supported via listener manager)", l.Type)
 	}
 
 	l.mu.Lock()

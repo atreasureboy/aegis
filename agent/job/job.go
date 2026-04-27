@@ -75,7 +75,7 @@ func (m *Manager) startRPortForward(jobID string, args map[string]string) (strin
 func (m *Manager) startForwardingJob(jobID, jobType, bindAddr, target string) (string, error) {
 	ln, err := net.Listen("tcp", bindAddr)
 	if err != nil {
-		return "", fmt.Errorf("listen %s: %v", bindAddr, err)
+		return "", fmt.Errorf("listen %s: %w", bindAddr, err)
 	}
 
 	ctx, cancel := newJobContext()
@@ -130,7 +130,7 @@ func (m *Manager) startListener(jobID string, args map[string]string) (string, e
 
 	ln, err := net.Listen("tcp", bindAddr)
 	if err != nil {
-		return "", fmt.Errorf("listen %s: %v", bindAddr, err)
+		return "", fmt.Errorf("listen %s: %w", bindAddr, err)
 	}
 
 	ctx, cancel := newJobContext()

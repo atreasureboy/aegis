@@ -11,6 +11,7 @@ import (
 	"github.com/aegis-c2/aegis/server/agent"
 	"github.com/aegis-c2/aegis/server/audit"
 	"github.com/aegis-c2/aegis/server/builder"
+	"github.com/aegis-c2/aegis/server/canary"
 	"github.com/aegis-c2/aegis/server/config"
 	servercrypto "github.com/aegis-c2/aegis/server/crypto"
 	"github.com/aegis-c2/aegis/server/db"
@@ -46,6 +47,7 @@ type Service struct {
 	NonceCache    *servercrypto.AgentNonceCache
 	Cfg           *config.ServerConfig
 	StageRegistry *stage.Registry
+	CanaryDetector *canary.CanaryDetector // DNS canary tracking (requires external DNS server for query reception)
 }
 
 // New 初始化所有子组件。
@@ -130,7 +132,8 @@ func New(cfg *config.ServerConfig) (*Service, error) {
 		EcdhKeyPair:   ecdhKeys,
 		NonceCache:    nonceCache,
 		Cfg:           cfg,
-		StageRegistry: stage.NewRegistry(),
+		StageRegistry:  stage.NewRegistry(),
+		CanaryDetector: canary.NewCanaryDetector("canary.aegis.internal"),
 	}, nil
 }
 

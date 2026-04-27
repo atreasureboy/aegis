@@ -276,14 +276,14 @@ func (t *Transport) post(path string, env *protocol.Envelope) (*map[string]strin
 
 	resp, err := t.client.Do(req)
 	if err != nil {
-		t.recordFailure(t.getActiveHost())
+		t.recordFailure(url)
 		return nil, fmt.Errorf("http request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		t.recordFailure(t.getActiveHost())
+		t.recordFailure(url)
 		return nil, fmt.Errorf("read response body: %w", err)
 	}
 
@@ -295,11 +295,11 @@ func (t *Transport) post(path string, env *protocol.Envelope) (*map[string]strin
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		t.recordFailure(t.getActiveHost())
+		t.recordFailure(url)
 		return nil, fmt.Errorf("server error %d: %s", resp.StatusCode, string(respBody))
 	}
 
-	t.recordSuccess(t.getActiveHost())
+	t.recordSuccess(url)
 
 	var result map[string]interface{}
 	if err := json.Unmarshal(respBody, &result); err != nil {
@@ -344,14 +344,14 @@ func (t *Transport) postRaw(path string, env *protocol.Envelope) ([]byte, error)
 
 	resp, err := t.client.Do(req)
 	if err != nil {
-		t.recordFailure(t.getActiveHost())
+		t.recordFailure(url)
 		return nil, fmt.Errorf("http request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		t.recordFailure(t.getActiveHost())
+		t.recordFailure(url)
 		return nil, fmt.Errorf("read response body: %w", err)
 	}
 
@@ -363,11 +363,11 @@ func (t *Transport) postRaw(path string, env *protocol.Envelope) ([]byte, error)
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		t.recordFailure(t.getActiveHost())
+		t.recordFailure(url)
 		return nil, fmt.Errorf("server error %d: %s", resp.StatusCode, string(respBody))
 	}
 
-	t.recordSuccess(t.getActiveHost())
+	t.recordSuccess(url)
 	return respBody, nil
 }
 

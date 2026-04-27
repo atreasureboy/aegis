@@ -268,11 +268,12 @@ func cmdServer(client aegispb.OperatorServiceClient, args []string) error {
 
 func cmdGenerate(client aegispb.OperatorServiceClient, args []string) error {
 	cfg := &aegispb.BuildConfig{
-		OS:     "windows",
-		Arch:   "amd64",
-		Format: "exe",
-		Sleep:  5,
-		Jitter: 20,
+		OS:      "windows",
+		Arch:    "amd64",
+		Format:  "exe",
+		Sleep:   5,
+		Jitter:  20,
+		Garble:  true, // 默认启用 garble 混淆
 	}
 
 	for _, arg := range args {
@@ -298,6 +299,8 @@ func cmdGenerate(client aegispb.OperatorServiceClient, args []string) error {
 			cfg.LPort = int32(v)
 		case arg == "--garble":
 			cfg.Garble = true
+		case arg == "--no-garble":
+			cfg.Garble = false
 		case arg == "--sleep-mask":
 			cfg.SleepMask = true
 		case arg == "--indirect-syscalls":

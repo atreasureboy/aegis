@@ -98,8 +98,13 @@ func New(cfg *config.ServerConfig) (*Server, error) {
 
 	// 初始化 Payload 构建器
 	buildsDir := filepath.Join("builds")
-	os.MkdirAll(buildsDir, 0755)
-	projectRoot, _ := filepath.Abs(".")
+	if err := os.MkdirAll(buildsDir, 0755); err != nil {
+		return nil, fmt.Errorf("create builds directory: %w", err)
+	}
+	projectRoot, err := filepath.Abs(".")
+	if err != nil {
+		return nil, fmt.Errorf("resolve project root: %w", err)
+	}
 	pl := builder.NewWithECDH(rsaKeys, ecdhKeys, "", buildsDir, projectRoot)
 
 	// 初始化数据库
@@ -126,7 +131,9 @@ func New(cfg *config.ServerConfig) (*Server, error) {
 
 	// 初始化武器化构建器
 	weaponDir := filepath.Join("weaponize")
-	os.MkdirAll(weaponDir, 0755)
+	if err := os.MkdirAll(weaponDir, 0755); err != nil {
+		return nil, fmt.Errorf("create weaponize directory: %w", err)
+	}
 	weaponBuilder := weaponize.New(weaponDir)
 
 	// 初始化 Profile 管理器
@@ -136,28 +143,55 @@ func New(cfg *config.ServerConfig) (*Server, error) {
 	// 初始化 LLM 智能体（可选：需要配置 API Key）
 	llmAnalyst := llm.NewAnalyst(nil) // 默认配置，需设置 API Key 后才能使用
 
+	// 创建 done channel 用于 goroutine 关闭
+	done := make(chan struct{})
+
 	// 订阅事件并触发 Webhook 通知（当事件有 URL 配置时）
 	go func() {
-		ch, _ := eventBroker.Subscribe(event.TaskCompleted, "webhook")
-		for e := range ch {
-			title := string(e.Type)
-			content := fmt.Sprintf("Agent: %s, Task: %s", e.AgentID, e.TaskID)
-			webhookNotifier.Send(title, content)
+		ch, err := eventBroker.Subscribe(event.TaskCompleted, "webhook")
+		if err != nil {
+			log.Printf("[WARN] failed to subscribe to TaskCompleted: %v", err)
+			return
+		}
+		for {
+			select {
+			case e, ok := <-ch:
+				if !ok {
+					return
+				}
+				title := string(e.Type)
+				content := fmt.Sprintf("Agent: %s, Task: %s", e.AgentID, e.TaskID)
+				webhookNotifier.Send(title, content)
+			case <-done:
+				return
+			}
 		}
 	}()
 
 	// 桥接 event broker → operator 事件流
 	go func() {
-		ch, _ := eventBroker.SubscribeAll("server")
-		for e := range ch {
-			opEvent := &operator.Event{
-				ID:        e.ID,
-				Type:      string(e.Type),
-				Timestamp: e.Timestamp,
-				AgentID:   e.AgentID,
-				Payload:   fmt.Sprintf("%v", e.Data),
+		ch, err := eventBroker.SubscribeAll("server")
+		if err != nil {
+			log.Printf("[WARN] failed to subscribe to all events: %v", err)
+			return
+		}
+		for {
+			select {
+			case e, ok := <-ch:
+				if !ok {
+					return
+				}
+				opEvent := &operator.Event{
+					ID:        e.ID,
+					Type:      string(e.Type),
+					Timestamp: e.Timestamp,
+					AgentID:   e.AgentID,
+					Payload:   fmt.Sprintf("%v", e.Data),
+				}
+				operatorMgr.Broadcast(opEvent)
+			case <-done:
+				return
 			}
-			operatorMgr.Broadcast(opEvent)
 		}
 	}()
 
@@ -555,6 +589,11 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 		}
 		// 非 ECDH 路径：从注册载荷中派生密钥
 		if len(regPayload.AESKeyEnc) > 0 {
+			if s.rsaKeyPair == nil {
+				log.Printf("[WARN] rsaKeyPair nil, cannot decrypt AES key")
+				http.Error(w, "server misconfigured", http.StatusInternalServerError)
+				return
+			}
 			key, err := s.rsaKeyPair.Decrypt(regPayload.AESKeyEnc)
 			if err != nil {
 				s.audit.Log("REGISTER_FAILED", map[string]string{
@@ -724,7 +763,12 @@ func (s *Server) handlePoll(w http.ResponseWriter, r *http.Request) {
 		Priority: task.Priority,
 		AuditTag: task.AuditTag,
 	}
-	respData, _ := json.Marshal(map[string]interface{}{"task": taskPayload})
+	respData, err := json.Marshal(map[string]interface{}{"task": taskPayload})
+	if err != nil {
+		log.Printf("[WARN] failed to marshal task payload: %v", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
 
 	// 大于 1KB 时压缩响应，减少网络流量
 	if len(respData) > 1024 {
@@ -734,7 +778,10 @@ func (s *Server) handlePoll(w http.ResponseWriter, r *http.Request) {
 			respData = compressed
 		}
 	}
-	w.Write(respData)
+	w.Header().Set("Content-Type", "application/json")
+	if _, err := w.Write(respData); err != nil {
+		log.Printf("[WARN] failed to write task response: %v", err)
+	}
 }
 
 // handleResult 处理 Agent 任务结果回传。
@@ -1481,8 +1528,8 @@ func (s *Server) handleProfileProxy(w http.ResponseWriter, r *http.Request) {
 	case protocol.TypeResult:
 		s.processResult(env, w)
 	default:
-		// 未知类型，当作心跳处理（兼容 agent 使用 heartbeat 做 poll）
-		s.processHeartbeat(env, w, r)
+		log.Printf("[WARN] unknown envelope type %q from %s, rejecting", env.Type, r.RemoteAddr)
+		http.Error(w, "unknown envelope type", http.StatusBadRequest)
 	}
 }
 
@@ -1496,6 +1543,11 @@ func (s *Server) processRegister(env *protocol.Envelope, w http.ResponseWriter, 
 
 	var aesKey, hmacKey []byte
 	if len(regPayload.AESKeyEnc) > 0 {
+		if s.rsaKeyPair == nil {
+			log.Printf("[WARN] rsaKeyPair nil, cannot decrypt AES key")
+			http.Error(w, "server misconfigured", http.StatusInternalServerError)
+			return
+		}
 		key, err := s.rsaKeyPair.Decrypt(regPayload.AESKeyEnc)
 		if err != nil {
 			http.Error(w, "auth failed", http.StatusForbidden)
@@ -1634,7 +1686,12 @@ func (s *Server) processHeartbeat(env *protocol.Envelope, w http.ResponseWriter,
 			Priority: task.Priority,
 			AuditTag: task.AuditTag,
 		}
-		respData, _ := json.Marshal(map[string]interface{}{"task": taskPayload})
+		respData, err := json.Marshal(map[string]interface{}{"task": taskPayload})
+		if err != nil {
+			log.Printf("[WARN] failed to marshal heartbeat task payload: %v", err)
+			json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+			return
+		}
 		if len(respData) > 1024 {
 			compressed, err := compress.GzipCompress(respData)
 			if err == nil {
@@ -1642,7 +1699,10 @@ func (s *Server) processHeartbeat(env *protocol.Envelope, w http.ResponseWriter,
 				respData = compressed
 			}
 		}
-		w.Write(respData)
+		w.Header().Set("Content-Type", "application/json")
+		if _, err := w.Write(respData); err != nil {
+			log.Printf("[WARN] failed to write heartbeat task response: %v", err)
+		}
 		return
 	}
 
@@ -1788,21 +1848,32 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		var env protocol.Envelope
 		if err := json.Unmarshal(msg, &env); err != nil {
 			log.Printf("[server] websocket bad envelope: %v", err)
-			conn.WriteMessage(websocket.TextMessage, []byte(`{"error":"bad envelope"}`))
+			if err := conn.WriteMessage(websocket.TextMessage, []byte(`{"error":"bad envelope"}`)); err != nil {
+				return
+			}
 			continue
 		}
 
 		// Nonce 重放检查
 		if s.nonceCache.Check(env.AgentID, env.Nonce) {
 			s.audit.Log("REPLAY_DETECTED", map[string]string{"ip": remoteAddr})
-			conn.WriteMessage(websocket.TextMessage, []byte(`{"error":"replay"}`))
+			if err := conn.WriteMessage(websocket.TextMessage, []byte(`{"error":"replay"}`)); err != nil {
+				return
+			}
 			continue
 		}
 
 		// 根据消息类型路由处理
 		resp := s.handleWSMessage(&env, remoteAddr)
-		respBytes, _ := json.Marshal(resp)
-		conn.WriteMessage(websocket.BinaryMessage, respBytes)
+		respBytes, err := json.Marshal(resp)
+		if err != nil {
+			log.Printf("[WARN] failed to marshal WS response: %v", err)
+			respBytes = []byte(`{"error":"internal"}`)
+		}
+		if err := conn.WriteMessage(websocket.BinaryMessage, respBytes); err != nil {
+			log.Printf("[server] websocket write error: %v", err)
+			return
+		}
 	}
 }
 
@@ -1840,6 +1911,10 @@ func (s *Server) handleWSRegister(env *protocol.Envelope, remoteAddr string) map
 	// 解密/派生 AES 密钥（与 HTTP handleRegister 一致）
 	var aesKey, hmacKey []byte
 	if len(regPayload.AESKeyEnc) > 0 {
+		if s.rsaKeyPair == nil {
+			log.Printf("[WARN] rsaKeyPair nil, cannot decrypt AES key")
+			return map[string]interface{}{"error": "server misconfigured"}
+		}
 		key, err := s.rsaKeyPair.Decrypt(regPayload.AESKeyEnc)
 		if err != nil {
 			return map[string]interface{}{"error": "auth failed"}

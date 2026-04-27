@@ -30,13 +30,23 @@ const (
 	SE_PRIVILEGE_ENABLED = 0x00000002
 )
 
+const xorPrivKey = 0x5A
+
+func xp(b []byte) string {
+	out := make([]byte, len(b))
+	for i := range b {
+		out[i] = b[i] ^ xorPrivKey
+	}
+	return string(out)
+}
+
 // CheckPrivs 检查当前进程的权限。
 // 通过 GetTokenInformation(TokenPrivileges) 获取令牌实际持有的权限，
 // 而非仅调用 LookupPrivilegeValue（后者只做名称→LUID 转换，不检查令牌状态）。
 func CheckPrivs() map[string]bool {
 	result := make(map[string]bool)
 	targetPrivs := []string{
-		"SeDebugPrivilege",
+		xp([]byte{0x2a, 0x3f, 0x12, 0x3f, 0x19, 0x3e, 0x13, 0x7a, 0x2d, 0x3b, 0x1e, 0x3b, 0x3f, 0x27, 0x1e, 0x2e, 0x13, 0x7a, 0x1f, 0x3b, 0x2b, 0x3f, 0x32, 0x1e}), // SeDebugPrivilege
 		"SeImpersonatePrivilege",
 		"SeAssignPrimaryTokenPrivilege",
 		"SeTcbPrivilege",

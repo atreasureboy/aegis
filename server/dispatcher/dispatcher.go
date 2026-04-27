@@ -190,16 +190,19 @@ func (d *Dispatcher) SubmitResult(result *protocol.ResultPayload) {
 	}
 	d.mu.Unlock()
 
-	// Enqueue DB write (outside lock)
+	// Enqueue DB write (outside lock) -- non-blocking with retry
 	if d.database != nil && dbTask != nil {
 		select {
 		case d.resultCh <- dbTask:
 		default:
-			select {
-			case d.resultCh <- dbTask:
-			case <-time.After(2 * time.Second):
-				log.Printf("[WARN] result channel full for 2s, dropping write for task %s", result.TaskID)
-			}
+			// Channel full: retry once with short delay before giving up
+			go func(t *dbWriteTask) {
+				select {
+				case d.resultCh <- t:
+				case <-time.After(5 * time.Second):
+					log.Printf("[WARN] result channel full after 5s, DB persistence skipped for task %s", t.taskID)
+				}
+			}(dbTask)
 		}
 	}
 
